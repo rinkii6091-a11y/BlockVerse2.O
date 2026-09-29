@@ -54,35 +54,40 @@ fun BlockFlowApp(viewModel: GameViewModel) {
     val userProfile by viewModel.userProfile.collectAsState()
     val activeTheme by viewModel.activeTheme.collectAsState()
 
-    when (currentScreen) {
-        AppScreen.HOME -> {
-            HomeScreen(
-                userProfile = userProfile,
-                theme = activeTheme,
-                onStartGame = { mode -> viewModel.startNewGame(mode) },
-                onNavigate = { screen -> viewModel.navigateTo(screen) }
-            )
+    androidx.compose.foundation.layout.Box(modifier = Modifier.fillMaxSize()) {
+        when (currentScreen) {
+            AppScreen.HOME -> {
+                HomeScreen(
+                    userProfile = userProfile,
+                    theme = activeTheme,
+                    onStartGame = { mode -> viewModel.startNewGame(mode) },
+                    onNavigate = { screen -> viewModel.navigateTo(screen) }
+                )
+            }
+            AppScreen.GAME -> {
+                GameScreen(viewModel = viewModel)
+            }
+            AppScreen.SHOP -> {
+                ShopThemesScreen(viewModel = viewModel)
+            }
+            AppScreen.ACHIEVEMENTS -> {
+                AchievementsScreen(viewModel = viewModel)
+            }
+            AppScreen.LEADERBOARD -> {
+                LeaderboardScreen(viewModel = viewModel)
+            }
+            AppScreen.SETTINGS -> {
+                SettingsScreen(viewModel = viewModel)
+            }
+            AppScreen.DAILY_CHALLENGE -> {
+                DailyChallengeScreen(viewModel = viewModel)
+            }
+            AppScreen.ADVENTURE_MAP -> {
+                AdventureMapScreen(viewModel = viewModel)
+            }
         }
-        AppScreen.GAME -> {
-            GameScreen(viewModel = viewModel)
-        }
-        AppScreen.SHOP -> {
-            ShopThemesScreen(viewModel = viewModel)
-        }
-        AppScreen.ACHIEVEMENTS -> {
-            AchievementsScreen(viewModel = viewModel)
-        }
-        AppScreen.LEADERBOARD -> {
-            LeaderboardScreen(viewModel = viewModel)
-        }
-        AppScreen.SETTINGS -> {
-            SettingsScreen(viewModel = viewModel)
-        }
-        AppScreen.DAILY_CHALLENGE -> {
-            DailyChallengeScreen(viewModel = viewModel)
-        }
-        AppScreen.ADVENTURE_MAP -> {
-            AdventureMapScreen(viewModel = viewModel)
-        }
+
+        // Global AdMob Overlay Host for Rewarded Video & Interstitial Ads
+        com.example.ads.AdMobManager.AdOverlayHost()
     }
 }

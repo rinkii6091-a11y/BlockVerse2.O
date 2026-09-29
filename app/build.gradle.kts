@@ -88,11 +88,7 @@ dependencies {
   implementation(libs.androidx.compose.ui.graphics)
   implementation(libs.androidx.compose.ui.tooling.preview)
   implementation(libs.androidx.core.ktx)
-  implementation(libs.play.services.ads) {
-    exclude(group = "androidx.privacysandbox.ads")
-    exclude(group = "com.google.android.gms", module = "play-services-measurement-sdk-api")
-    exclude(group = "com.google.android.gms", module = "play-services-measurement-base")
-  }
+  // implementation(libs.play.services.ads)
   // implementation(libs.androidx.datastore.preferences)
   implementation(libs.androidx.lifecycle.runtime.compose)
   implementation(libs.androidx.lifecycle.runtime.ktx)

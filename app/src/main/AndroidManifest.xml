@@ -17,19 +17,6 @@
         android:hardwareAccelerated="true"
         android:theme="@style/Theme.MyApplication">
 
-        <!-- Google AdMob Application ID (Official Sample ID for Testing) -->
-        <meta-data
-            android:name="com.google.android.gms.ads.APPLICATION_ID"
-            android:value="ca-app-pub-3940256099942544~3347511713" />
-
-        <!-- AdMob Initialization & Loading Optimization -->
-        <meta-data
-            android:name="com.google.android.gms.ads.flag.OPTIMIZE_INITIALIZATION"
-            android:value="true" />
-        <meta-data
-            android:name="com.google.android.gms.ads.flag.OPTIMIZE_AD_LOADING"
-            android:value="true" />
-
         <!-- Disable Firebase Analytics Auto-Collection since app operates locally -->
         <meta-data
             android:name="firebase_analytics_collection_deactivated"
