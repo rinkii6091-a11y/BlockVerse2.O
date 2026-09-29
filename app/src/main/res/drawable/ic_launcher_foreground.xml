@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Glowing backdrop shadow -->
+    <path
+        android:fillColor="#5000E5FF"
+        android:pathData="M34,34h40v40h-40z" />
+
+    <!-- Cyan Block Top-Left -->
+    <path
+        android:fillColor="#00E5FF"
+        android:pathData="M32,32h19v19h-19z" />
+    <path
+        android:fillColor="#E0F7FA"
+        android:fillAlpha="0.65"
+        android:pathData="M32,32h19v3h-19z M32,32h3v19h-3z" />
+    <path
+        android:fillColor="#00838F"
+        android:fillAlpha="0.6"
+        android:pathData="M32,48h19v3h-19z M48,32h3v19h-3z" />
+
+    <!-- Violet Block Top-Right -->
+    <path
+        android:fillColor="#A855F7"
+        android:pathData="M54,32h22v22h-22z" />
+    <path
+        android:fillColor="#F3E8FF"
+        android:fillAlpha="0.7"
+        android:pathData="M54,32h22v3h-22z M54,32h3v22h-3z" />
+    <path
+        android:fillColor="#6B21A8"
+        android:fillAlpha="0.6"
+        android:pathData="M54,51h22v3h-22z M73,32h3v22h-3z" />
+
+    <!-- Neon Pink Block Bottom-Left -->
+    <path
+        android:fillColor="#EC4899"
+        android:pathData="M32,54h22v22h-22z" />
+    <path
+        android:fillColor="#FCE7F3"
+        android:fillAlpha="0.7"
+        android:pathData="M32,54h22v3h-22z M32,54h3v22h-3z" />
+    <path
+        android:fillColor="#9D174D"
+        android:fillAlpha="0.6"
+        android:pathData="M32,73h22v3h-22z M51,54h3v22h-3z" />
+
+    <!-- Amber Gold Gem Block Bottom-Right -->
+    <path
+        android:fillColor="#F59E0B"
+        android:pathData="M57,57h19v19h-19z" />
+    <path
+        android:fillColor="#FEF3C7"
+        android:fillAlpha="0.75"
+        android:pathData="M57,57h19v3h-19z M57,57h3v19h-3z" />
+    <path
+        android:fillColor="#B45309"
+        android:fillAlpha="0.6"
+        android:pathData="M57,73h19v3h-19z M73,57h3v19h-3z" />
+
+    <!-- Center Flow Pulse Star -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,49 L56,53 L60,54 L56,55 L54,59 L52,55 L48,54 L52,53 Z" />
+</vector>

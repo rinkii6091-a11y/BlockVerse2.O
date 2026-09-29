@@ -1,0 +1,6 @@
+{
+  "name": "BlockFlow",
+  "description": "Next-gen 2026 block puzzle game featuring dynamic flow mechanics, combo chains, special blocks, and neon aesthetics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
