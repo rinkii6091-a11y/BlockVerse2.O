@@ -32,6 +32,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        // Preload Google AdMob in background
+        com.example.ads.AdMobManager.initialize(applicationContext)
+
         setContent {
             MyApplicationTheme {
                 Surface(

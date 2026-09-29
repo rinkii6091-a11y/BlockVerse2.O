@@ -51,6 +51,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.ads.AdMobBanner
 import com.example.data.UserProfileEntity
 import com.example.model.GameMode
 import com.example.theme.ThemeConfig
@@ -301,6 +302,21 @@ fun HomeScreen(
                     StatGlance("LINES", "${userProfile.totalLinesCleared}")
                     StatGlance("BEST COMBO", "${userProfile.bestCombo}x")
                     StatGlance("LEVEL", "${userProfile.currentLevel}")
+                }
+            }
+
+            // Google AdMob Home Banner
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color(0x221E293B))
+                        .border(1.dp, Color(0x1AFFFFFF), RoundedCornerShape(16.dp))
+                        .padding(4.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    AdMobBanner()
                 }
             }
         }

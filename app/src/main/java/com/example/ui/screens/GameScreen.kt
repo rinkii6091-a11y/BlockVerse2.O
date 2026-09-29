@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import android.app.Activity
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
@@ -31,6 +32,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -42,12 +44,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.ads.AdMobManager
 import com.example.model.AdventureLevelsCatalog
 import com.example.model.GameMode
 import com.example.ui.components.BlockPieceView
@@ -55,6 +59,7 @@ import com.example.ui.components.BoardView
 import com.example.ui.components.FloatingScoreOverlay
 import com.example.ui.components.FlowMeterBar
 import com.example.ui.components.GameOverDialog
+import com.example.ui.components.GameScoreHeader
 import com.example.ui.components.LevelObjectivesHud
 import com.example.ui.components.LevelVictoryDialog
 import com.example.ui.components.ParticleOverlay
@@ -79,7 +84,9 @@ fun GameScreen(
     val dragOffset by viewModel.dragOffset.collectAsState()
     val hoverPosition by viewModel.hoverGridPosition.collectAsState()
     val isPlacementValid by viewModel.isPlacementValid.collectAsState()
+    val inputHandlerState by viewModel.inputHandlerState.collectAsState()
     val score by viewModel.score.collectAsState()
+    val scoreHeaderState by viewModel.scoreHeaderState.collectAsState()
     val linesClearedThisRound by viewModel.linesClearedThisRound.collectAsState()
     val combo by viewModel.combo.collectAsState()
     val comboBannerText by viewModel.comboBannerText.collectAsState()
@@ -100,6 +107,13 @@ fun GameScreen(
     val levelGemsEarned by viewModel.levelGemsEarned.collectAsState()
     val isLevelCleared by viewModel.isLevelCleared.collectAsState()
     val draggingPiece = draggingPieceIndex?.let { availablePieces.getOrNull(it) }
+
+    val context = LocalContext.current
+    val activity = context as? Activity
+
+    LaunchedEffect(Unit) {
+        AdMobManager.prepareGameAds(context)
+    }
 
     var isShareOpen by remember { mutableStateOf(false) }
 
@@ -124,71 +138,12 @@ fun GameScreen(
             verticalArrangement = Arrangement.SpaceBetween,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // TOP HUD
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Mode / Level Badge
-                Column {
-                    val modeTitle = when (gameMode) {
-                        GameMode.CLASSIC -> "CLASSIC"
-                        GameMode.ADVENTURE -> "LEVEL $adventureLevel"
-                        GameMode.DAILY -> "DAILY QUEST"
-                        GameMode.TIME_RUSH -> "TIME RUSH"
-                    }
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color(0x331E293B))
-                            .border(1.dp, theme.accentColor.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-                            .padding(horizontal = 10.dp, vertical = 4.dp)
-                    ) {
-                        Text(
-                            text = modeTitle,
-                            color = theme.accentColor,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Black,
-                            letterSpacing = 1.sp
-                        )
-                    }
-                }
-
-                // Current Score & High Score
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = "$score",
-                        color = Color.White,
-                        fontSize = 32.sp,
-                        fontWeight = FontWeight.Black
-                    )
-                    Text(
-                        text = "BEST ${userProfile.highScore}",
-                        color = Color(0x88FFFFFF),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                // Pause Button
-                IconButton(
-                    onClick = { viewModel.pauseGame() },
-                    modifier = Modifier
-                        .size(42.dp)
-                        .clip(CircleShape)
-                        .background(Color(0x331E293B))
-                        .testTag("game_pause_btn")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Pause,
-                        contentDescription = "Pause",
-                        tint = Color.White
-                    )
-                }
-            }
+            // ViewModel-backed UI Header Component
+            GameScoreHeader(
+                state = scoreHeaderState,
+                theme = theme,
+                onPauseClick = { viewModel.pauseGame() }
+            )
 
             // Flow Meter Bar
             FlowMeterBar(
@@ -256,15 +211,17 @@ fun GameScreen(
                 onPowerUpSelected = { type -> viewModel.selectPowerUp(type) }
             )
 
-            // Bottom 3 Piece Tray
+            // Bottom 3 Piece Tray (Supports both Drag-and-Drop and Tap-to-Place)
             PieceTray(
                 availablePieces = availablePieces,
                 theme = theme,
                 activeDraggingIndex = draggingPieceIndex,
+                selectedPieceIndex = if (inputHandlerState.isTapSelected) inputHandlerState.activePieceIndex else null,
                 onDragStart = { idx, touchPos -> viewModel.onDragStart(idx, touchPos) },
                 onDrag = { delta -> viewModel.onDrag(delta) },
                 onDragEnd = { viewModel.onDragEnd() },
-                onDragCancel = { viewModel.onDragCancel() }
+                onDragCancel = { viewModel.onDragCancel() },
+                onPieceTap = { idx -> viewModel.onPieceTrayTapped(idx) }
             )
 
             Spacer(modifier = Modifier.height(4.dp))
@@ -329,7 +286,15 @@ fun GameScreen(
             gemsEarned = levelGemsEarned,
             hasNextLevel = adventureLevel < 25,
             theme = theme,
-            onNextLevel = { viewModel.startNextAdventureLevel() },
+            onNextLevel = {
+                if (activity != null) {
+                    AdMobManager.showInterstitialOnWin(activity) {
+                        viewModel.startNextAdventureLevel()
+                    }
+                } else {
+                    viewModel.startNextAdventureLevel()
+                }
+            },
             onReplay = { viewModel.startNewGame(GameMode.ADVENTURE, adventureLevel) },
             onMap = { viewModel.navigateTo(AppScreen.ADVENTURE_MAP) }
         )
@@ -344,6 +309,29 @@ fun GameScreen(
             isNewRecord = isNewRecord,
             coinsEarned = (score / 40) + 15,
             theme = theme,
+            onWatchAdToRevive = {
+                if (activity != null) {
+                    AdMobManager.showRewardedAd(
+                        activity = activity,
+                        onUserEarnedReward = { viewModel.reviveGame() },
+                        onAdClosed = {}
+                    )
+                } else {
+                    viewModel.reviveGame()
+                }
+            },
+            onWatchAdToDoubleCoins = {
+                val coinsEarned = (score / 40) + 15
+                if (activity != null) {
+                    AdMobManager.showRewardedAd(
+                        activity = activity,
+                        onUserEarnedReward = { viewModel.doubleGameOverCoins(coinsEarned) },
+                        onAdClosed = {}
+                    )
+                } else {
+                    viewModel.doubleGameOverCoins(coinsEarned)
+                }
+            },
             onReplay = { viewModel.startNewGame(gameMode, adventureLevel) },
             onHome = { viewModel.navigateTo(AppScreen.HOME) },
             onShare = { isShareOpen = true }

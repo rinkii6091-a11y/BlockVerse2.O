@@ -13,6 +13,10 @@ import com.example.data.GameRepository
 import com.example.data.LevelProgressEntity
 import com.example.data.UserProfileEntity
 import com.example.haptics.HapticsManager
+import com.example.logic.GameInputHandler
+import com.example.logic.GameLogic
+import com.example.logic.InputHandlerState
+import com.example.logic.PlacementResult
 import com.example.model.AdventureLevel
 import com.example.model.AdventureLevelsCatalog
 import com.example.model.BlockPiece
@@ -22,16 +26,21 @@ import com.example.model.FloatingScore
 import com.example.model.GameMode
 import com.example.model.MomentumLevel
 import com.example.model.Particle
+import com.example.model.ParticleType
 import com.example.model.PieceTemplates
 import com.example.model.PowerUpType
+import com.example.model.ScoreHeaderState
 import com.example.model.SpecialType
 import com.example.theme.GameThemes
 import com.example.theme.ThemeId
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -60,6 +69,9 @@ data class BoardSnapshot(
 
 class GameViewModel(application: Application) : AndroidViewModel(application) {
 
+    val gameLogic: GameLogic = GameLogic.instance
+    val inputHandler: GameInputHandler = GameInputHandler(gameLogic)
+    val inputHandlerState: StateFlow<InputHandlerState> = inputHandler.state
     private val repository: GameRepository
     val soundManager = SoundManager()
     val hapticsManager = HapticsManager(application.applicationContext)
@@ -180,6 +192,38 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private val _isNewRecord = MutableStateFlow(false)
     val isNewRecord: StateFlow<Boolean> = _isNewRecord.asStateFlow()
 
+    /**
+     * ViewModel-backed state stream driving the Game Score Header UI component.
+     * Reactively emits updated current score, high score, new record indicators,
+     * combo counts, and multipliers.
+     */
+    val scoreHeaderState: StateFlow<ScoreHeaderState> = combine(
+        _score,
+        _userProfile,
+        _isNewRecord,
+        _combo,
+        _momentum
+    ) { score, profile, isNewRecord, combo, momentum ->
+        ScoreHeaderState(
+            currentScore = score,
+            bestScore = maxOf(profile.highScore, score),
+            isNewRecord = isNewRecord || (profile.highScore > 0 && score > profile.highScore),
+            combo = combo,
+            multiplier = momentum.multiplier,
+            momentum = momentum,
+            gameMode = _gameMode.value,
+            adventureLevel = _currentAdventureLevel.value
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.Eagerly,
+        initialValue = ScoreHeaderState()
+    )
+
+    fun addPoints(points: Int, label: String = "POINTS") {
+        addScore(points, label)
+    }
+
     private val _isLevelCleared = MutableStateFlow(false)
     val isLevelCleared: StateFlow<Boolean> = _isLevelCleared.asStateFlow()
 
@@ -223,7 +267,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun createEmptyBoard(): List<List<CellState>> {
-        return List(8) { List(8) { CellState() } }
+        return gameLogic.createEmptyBoard()
     }
 
     // ==========================================
@@ -326,40 +370,54 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun dealNewTrio() {
-        val trio = PieceTemplates.generateTrio(_board.value, _userProfile.value.currentLevel)
+        val trio = gameLogic.generatePieceTrio(_board.value, _userProfile.value.currentLevel)
         _availablePieces.value = trio
         checkGameOverCondition()
     }
 
     // ==========================================
-    // DRAG AND DROP
+    // INPUT HANDLING (DRAG-AND-DROP & TAP-TO-PLACE)
     // ==========================================
 
     fun onDragStart(pieceIndex: Int, initialTouchOffset: Offset) {
         val piece = _availablePieces.value.getOrNull(pieceIndex) ?: return
-        _draggingPieceIndex.value = pieceIndex
-        _dragOffset.value = initialTouchOffset
         soundManager.playPickup()
-        updateHoverAndValidity(piece, initialTouchOffset)
+        val newState = inputHandler.onDragStart(
+            pieceIndex = pieceIndex,
+            piece = piece,
+            screenTouch = initialTouchOffset,
+            boardBounds = boardScreenBounds,
+            cellSizePx = cellSizePx,
+            board = _board.value
+        )
+        _draggingPieceIndex.value = newState.activePieceIndex
+        _dragOffset.value = newState.dragPosition
+        _hoverGridPosition.value = newState.hoverPosition
+        _isPlacementValid.value = newState.isPlacementValid
     }
 
     fun onDrag(dragDelta: Offset) {
-        val idx = _draggingPieceIndex.value ?: return
-        val piece = _availablePieces.value.getOrNull(idx) ?: return
-        val newOffset = _dragOffset.value + dragDelta
-        _dragOffset.value = newOffset
-        updateHoverAndValidity(piece, newOffset)
+        val newState = inputHandler.onDrag(
+            dragDelta = dragDelta,
+            boardBounds = boardScreenBounds,
+            cellSizePx = cellSizePx,
+            board = _board.value
+        )
+        _dragOffset.value = newState.dragPosition
+        _hoverGridPosition.value = newState.hoverPosition
+        _isPlacementValid.value = newState.isPlacementValid
     }
 
     fun onDragEnd() {
-        val idx = _draggingPieceIndex.value
-        val piece = idx?.let { _availablePieces.value.getOrNull(it) }
-
-        if (idx != null && piece != null && _isPlacementValid.value) {
-            val (startR, startC) = _hoverGridPosition.value ?: (0 to 0)
-            placePiece(idx, piece, startR, startC)
-        } else if (idx != null) {
-            soundManager.playInvalid()
+        when (val result = inputHandler.onDragEnd(_board.value)) {
+            is PlacementResult.Success -> {
+                placePiece(result.pieceIndex, result.piece, result.targetRow, result.targetCol)
+            }
+            is PlacementResult.Invalid -> {
+                soundManager.playInvalid()
+                hapticsManager.vibrateInvalid()
+            }
+            else -> {}
         }
 
         _draggingPieceIndex.value = null
@@ -368,31 +426,17 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun onDragCancel() {
+        inputHandler.onDragCancel()
         _draggingPieceIndex.value = null
         _hoverGridPosition.value = null
         _isPlacementValid.value = false
     }
 
-    private fun updateHoverAndValidity(piece: BlockPiece, touchOffset: Offset) {
-        if (boardScreenBounds.width <= 0 || cellSizePx <= 0) {
-            _isPlacementValid.value = false
-            return
-        }
-
-        // Lift piece slightly above finger so thumb does not occlude the view!
-        val visualYOffset = cellSizePx * 1.5f
-        val adjustedX = touchOffset.x - (piece.cols * cellSizePx / 2f)
-        val adjustedY = (touchOffset.y - visualYOffset) - (piece.rows * cellSizePx / 2f)
-
-        val localX = adjustedX - boardScreenBounds.left
-        val localY = adjustedY - boardScreenBounds.top
-
-        val col = Math.round(localX / cellSizePx).coerceIn(0, 8 - piece.cols)
-        val row = Math.round(localY / cellSizePx).coerceIn(0, 8 - piece.rows)
-
-        val canPlace = piece.canPlaceAt(_board.value, row, col)
-        _hoverGridPosition.value = row to col
-        _isPlacementValid.value = canPlace
+    fun onPieceTrayTapped(pieceIndex: Int) {
+        val piece = _availablePieces.value.getOrNull(pieceIndex) ?: return
+        soundManager.playPickup()
+        val newState = inputHandler.onPieceTrayTapped(pieceIndex, piece)
+        _draggingPieceIndex.value = if (newState.isTapSelected) pieceIndex else null
     }
 
     // ==========================================
@@ -409,22 +453,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             flowMeter = _flowMeter.value
         )
 
-        // 1. Stamp piece onto board
-        val currentBoard = _board.value.map { it.toMutableList() }
-        for (r in 0 until piece.rows) {
-            for (c in 0 until piece.cols) {
-                if (piece.shapeMatrix[r][c]) {
-                    val br = startR + r
-                    val bc = startC + c
-                    currentBoard[br][bc] = CellState(
-                        isFilled = true,
-                        colorIndex = piece.colorIndex,
-                        specialType = piece.specialType,
-                        collectible = piece.collectible
-                    )
-                }
-            }
-        }
+        // 1. Stamp piece onto board using GameLogic
+        val currentBoard = gameLogic.stampPiece(_board.value, piece, startR, startC)
 
         // Mark piece consumed
         val updatedPieces = _availablePieces.value.toMutableList()
@@ -434,14 +464,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         soundManager.playSnap()
         hapticsManager.vibrateSnap()
 
-        // Points for placing
-        val placePoints = (piece.blockCount * 10 * _momentum.value.multiplier).toInt()
+        // Points for placing using GameLogic
+        val placePoints = gameLogic.calculatePlacementScore(piece, _momentum.value.multiplier)
         addScore(placePoints, "PLACED")
 
-        // 2. Detect lines to clear
-        val fullRows = (0 until 8).filter { r -> currentBoard[r].all { it.isFilled } }
-        val fullCols = (0 until 8).filter { c -> (0 until 8).all { r -> currentBoard[r][c].isFilled } }
-
+        // 2. Detect lines to clear using GameLogic
+        val fullRows = gameLogic.detectFullRows(currentBoard)
+        val fullCols = gameLogic.detectFullCols(currentBoard)
         val linesCleared = fullRows.size + fullCols.size
 
         if (linesCleared > 0) {
@@ -460,7 +489,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun processLineClears(
-        boardState: List<MutableList<CellState>>,
+        boardState: List<List<CellState>>,
         fullRows: List<Int>,
         fullCols: List<Int>
     ) {
@@ -471,14 +500,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val currentCombo = _combo.value + 1
         _combo.value = currentCombo
 
-        val banner = when (currentCombo) {
-            1 -> if (totalLines > 1) "${totalLines}X LINE CLEAR!" else "LINE CLEAR!"
-            2 -> "2X FLOW!"
-            3 -> "PERFECT COMBO!"
-            4 -> "INSANE FLOW!"
-            5 -> "ULTRA COMBO!"
-            else -> "BLOCK GOD ${currentCombo}X!"
-        }
+        // Calculate score & combo banner through GameLogic
+        val scoreBreakdown = gameLogic.calculateLineClearScore(
+            linesCleared = totalLines,
+            combo = currentCombo,
+            momentumMultiplier = _momentum.value.multiplier
+        )
+        val banner = scoreBreakdown.bannerText
         _comboBannerText.value = banner
         viewModelScope.launch {
             delay(1200)
@@ -493,18 +521,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         hapticsManager.vibrateLineClear()
         if (currentCombo >= 3) hapticsManager.vibrateCombo()
 
-        // Calculate score with exponential bonuses for multi-lines and combos
-        val lineBase = when (totalLines) {
-            1 -> 100
-            2 -> 300
-            3 -> 600
-            4 -> 1000
-            5 -> 1500
-            else -> 2200
-        }
-        val comboBonus = (currentCombo - 1) * 150
-        val earnedScore = ((lineBase + comboBonus) * _momentum.value.multiplier).toInt()
-        addScore(earnedScore, banner)
+        addScore(scoreBreakdown.totalScoreEarned, banner)
 
         // Increase Flow Meter
         val flowGain = 0.20f * totalLines + (currentCombo * 0.05f)
@@ -519,95 +536,43 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             else -> MomentumLevel.CALM
         }
 
-        // Find cells to clear & check special blocks
-        val cellsToClear = mutableSetOf<Pair<Int, Int>>()
-        for (r in fullRows) {
-            for (c in 0 until 8) cellsToClear.add(r to c)
-        }
-        for (c in fullCols) {
-            for (r in 0 until 8) cellsToClear.add(r to c)
-        }
+        // Process line clear and special block reactions through GameLogic
+        val clearResult = gameLogic.processLineClears(boardState, fullRows, fullCols)
 
-        // Process special blocks inside cleared lines
-        val secondaryClears = mutableSetOf<Pair<Int, Int>>()
-        for ((r, c) in cellsToClear) {
-            val cell = boardState[r][c]
-            when (cell.specialType) {
+        // Trigger special effects sounds
+        for (effect in clearResult.specialEffectsTriggered) {
+            when (effect.specialType) {
                 SpecialType.BOMB -> {
                     soundManager.playBomb()
                     hapticsManager.vibrateSpecial()
-                    for (dr in -1..1) {
-                        for (dc in -1..1) {
-                            val nr = r + dr
-                            val nc = c + dc
-                            if (nr in 0..7 && nc in 0..7) secondaryClears.add(nr to nc)
-                        }
-                    }
-                }
-                SpecialType.LIGHTNING_H -> {
-                    for (col in 0 until 8) secondaryClears.add(r to col)
-                }
-                SpecialType.LIGHTNING_V -> {
-                    for (row in 0 until 8) secondaryClears.add(row to c)
-                }
-                SpecialType.RAINBOW -> {
-                    // Clears all adjacent blocks
-                    for (dr in -1..1) {
-                        for (dc in -1..1) {
-                            val nr = r + dr
-                            val nc = c + dc
-                            if (nr in 0..7 && nc in 0..7) secondaryClears.add(nr to nc)
-                        }
-                    }
-                }
-                SpecialType.ICE -> {
-                    // Handled in ice fracture phase
                 }
                 else -> {}
             }
-
-            // Check Collectibles
-            if (cell.collectible != CollectibleType.NONE) {
-                collectItem(cell.collectible, r, c)
-            }
-        }
-        cellsToClear.addAll(secondaryClears)
-
-        // Fracture / Shatter nearby Ice Blocks
-        for (r in 0 until 8) {
-            for (c in 0 until 8) {
-                val cell = boardState[r][c]
-                if (cell.specialType == SpecialType.ICE && cell.isFilled) {
-                    val inClearedLine = r in fullRows || c in fullCols
-                    val isNearBlast = secondaryClears.any { (sr, sc) -> kotlin.math.abs(sr - r) <= 1 && kotlin.math.abs(sc - c) <= 1 }
-                    if (inClearedLine || isNearBlast) {
-                        val hits = cell.iceHitsLeft - 1
-                        if (hits <= 0) {
-                            cellsToClear.add(r to c)
-                            val cx = boardScreenBounds.left + (c + 0.5f) * cellSizePx
-                            val cy = boardScreenBounds.top + (r + 0.5f) * cellSizePx
-                            spawnParticleBurst(cx, cy, listOf(Color(0xFFE0F7FA), Color(0xFF00E5FF), Color.White), count = 8)
-                        } else {
-                            boardState[r][c] = cell.copy(iceHitsLeft = hits)
-                        }
-                    }
-                }
-            }
         }
 
-        // Spawn Burst Particles at cleared cells
+        // Collect gathered items
+        for (item in clearResult.collectiblesGathered) {
+            collectItem(item.collectibleType, item.row, item.col)
+        }
+
+        // Trigger high-impact Neon Line Clear particle effects for each cleared row & column
+        for (r in fullRows) {
+            spawnRowClearNeonEffect(r, isRow = true)
+        }
+        for (c in fullCols) {
+            spawnRowClearNeonEffect(c, isRow = false)
+        }
+
+        // Spawn Burst Particles at remaining cleared cells
         val palette = _activeTheme.value.particleColors
-        for ((r, c) in cellsToClear) {
+        for ((r, c) in clearResult.clearedCells) {
             val cx = boardScreenBounds.left + (c + 0.5f) * cellSizePx
             val cy = boardScreenBounds.top + (r + 0.5f) * cellSizePx
-            spawnParticleBurst(cx, cy, palette, count = 5)
+            spawnParticleBurst(cx, cy, palette, count = 4)
         }
 
         // Apply clears to board
-        for ((r, c) in cellsToClear) {
-            boardState[r][c] = CellState()
-        }
-        _board.value = boardState
+        _board.value = clearResult.updatedBoard
 
         // Update round combo record
         _maxComboInRound.value = maxOf(_maxComboInRound.value, currentCombo)
@@ -696,7 +661,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val pieces = _availablePieces.value.filterNotNull()
         if (pieces.isEmpty()) return
 
-        val canFitAny = pieces.any { it.canFitAnywhere(_board.value) }
+        val canFitAny = gameLogic.canAnyPieceFit(_board.value, pieces)
         if (!canFitAny) {
             // Check if player has power-ups to save themselves (Shuffle or Hammer)
             triggerGameOver()
@@ -766,6 +731,38 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Rewarded Ad Bonus: Clears the center 4x4 matrix and deals fresh pieces,
+     * allowing the player to revive and continue playing without losing their combo!
+     */
+    fun reviveGame() {
+        val currentBoard = _board.value.map { it.toMutableList() }
+        for (r in 2..5) {
+            for (c in 2..5) {
+                currentBoard[r][c] = CellState()
+            }
+        }
+        _board.value = currentBoard
+        _isGameOver.value = false
+        dealNewTrio()
+        soundManager.playLevelUp()
+        hapticsManager.vibrateCombo()
+        spawnParticleBurst(boardScreenBounds.center.x, boardScreenBounds.center.y, _activeTheme.value.particleColors, count = 24)
+    }
+
+    /**
+     * Rewarded Ad Bonus: Doubles the coins earned in the game session.
+     */
+    fun doubleGameOverCoins(bonusCoins: Int) {
+        viewModelScope.launch {
+            val cur = _userProfile.value
+            val updated = cur.copy(coins = cur.coins + bonusCoins)
+            _userProfile.value = updated
+            repository.saveProfile(updated)
+            soundManager.playCollectible()
+        }
+    }
+
     // ==========================================
     // POWER-UPS
     // ==========================================
@@ -816,7 +813,30 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun onCellClicked(row: Int, col: Int) {
-        val active = _activePowerUp.value ?: return
+        val active = _activePowerUp.value
+        if (active != null) {
+            handlePowerUpOnCell(active, row, col)
+            return
+        }
+
+        // Tap-to-Place execution via GameInputHandler
+        when (val result = inputHandler.onBoardCellTapped(row, col, _board.value)) {
+            is PlacementResult.Success -> {
+                placePiece(result.pieceIndex, result.piece, result.targetRow, result.targetCol)
+                _draggingPieceIndex.value = null
+            }
+            is PlacementResult.Invalid -> {
+                soundManager.playInvalid()
+                hapticsManager.vibrateInvalid()
+            }
+            PlacementResult.None -> {
+                // No piece selected for tap-to-place
+            }
+            else -> {}
+        }
+    }
+
+    private fun handlePowerUpOnCell(active: PowerUpType, row: Int, col: Int) {
         val currentBoard = _board.value.map { it.toMutableList() }
 
         when (active) {
@@ -1016,7 +1036,177 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 )
             )
         }
-        _particles.value = (_particles.value + newParticles).takeLast(120)
+        _particles.value = (_particles.value + newParticles).takeLast(160)
+    }
+
+    /**
+     * Spawns an energetic neon particle burst along an entire cleared row or column.
+     * Incorporates neon shockwave rings, spinning diamond sparkles, laser streaks, and glowing sparks.
+     */
+    fun spawnRowClearNeonEffect(index: Int, isRow: Boolean) {
+        if (_userProfile.value.reducedMotion) return
+        if (boardScreenBounds.width <= 0 || cellSizePx <= 0) return
+
+        val palette = _activeTheme.value.particleColors
+        val newParticles = mutableListOf<Particle>()
+        val primaryColor = palette.firstOrNull() ?: Color(0xFF00E5FF)
+        val secondaryColor = palette.getOrNull(1) ?: Color(0xFFFF007A)
+        val accentGold = Color(0xFFFFD700)
+
+        if (isRow) {
+            val centerY = boardScreenBounds.top + (index + 0.5f) * cellSizePx
+
+            // High-speed horizontal laser streaks across the row
+            for (i in 0 until 4) {
+                val startX = boardScreenBounds.left + (Math.random() * 0.4f * boardScreenBounds.width).toFloat()
+                val speed = (420f + Math.random() * 520f).toFloat()
+                newParticles.add(
+                    Particle(
+                        x = startX,
+                        y = centerY + ((Math.random() - 0.5f) * cellSizePx * 0.35f).toFloat(),
+                        vx = speed,
+                        vy = ((Math.random() - 0.5f) * 40f).toFloat(),
+                        color = if (i % 2 == 0) primaryColor else secondaryColor,
+                        size = (3.5f + Math.random() * 3f).toFloat(),
+                        maxLife = 0.55f,
+                        type = ParticleType.LIGHT_STREAK,
+                        length = (45f + Math.random() * 65f).toFloat()
+                    )
+                )
+            }
+
+            // Cell explosions with expanding neon rings and sparkle stars
+            for (c in 0 until 8) {
+                val cx = boardScreenBounds.left + (c + 0.5f) * cellSizePx
+                val cy = centerY
+
+                // Neon Shockwave Ring
+                newParticles.add(
+                    Particle(
+                        x = cx,
+                        y = cy,
+                        vx = 0f,
+                        vy = 0f,
+                        color = palette[c % palette.size],
+                        size = cellSizePx * 0.45f,
+                        maxLife = 0.45f,
+                        type = ParticleType.NEON_RING
+                    )
+                )
+
+                // Spinning Diamond Star Sparkle
+                newParticles.add(
+                    Particle(
+                        x = cx,
+                        y = cy,
+                        vx = ((Math.random() - 0.5f) * 160f).toFloat(),
+                        vy = ((Math.random() - 0.5f) * 180f - 50f).toFloat(),
+                        color = accentGold,
+                        size = (6f + Math.random() * 6f).toFloat(),
+                        maxLife = (0.5f + Math.random() * 0.3f).toFloat(),
+                        type = ParticleType.STAR_SPARKLE,
+                        rotation = (Math.random() * 360f).toFloat(),
+                        vRot = ((Math.random() - 0.5f) * 400f).toFloat()
+                    )
+                )
+
+                // Outward neon sparks (top & bottom vertical burst)
+                for (s in 0 until 4) {
+                    val angle = if (s % 2 == 0) (-Math.PI / 2.0 + (Math.random() - 0.5)) else (Math.PI / 2.0 + (Math.random() - 0.5))
+                    val speed = (120f + Math.random() * 260f).toFloat()
+                    newParticles.add(
+                        Particle(
+                            x = cx,
+                            y = cy,
+                            vx = (cos(angle) * speed).toFloat(),
+                            vy = (sin(angle) * speed).toFloat(),
+                            color = palette.random(),
+                            size = (4.5f + Math.random() * 5.5f).toFloat(),
+                            maxLife = (0.4f + Math.random() * 0.35f).toFloat(),
+                            type = ParticleType.NEON_CIRCLE
+                        )
+                    )
+                }
+            }
+        } else {
+            // Column clear
+            val centerX = boardScreenBounds.left + (index + 0.5f) * cellSizePx
+
+            // High-speed vertical laser streaks
+            for (i in 0 until 4) {
+                val startY = boardScreenBounds.top + (Math.random() * 0.4f * boardScreenBounds.height).toFloat()
+                val speed = (420f + Math.random() * 520f).toFloat()
+                newParticles.add(
+                    Particle(
+                        x = centerX + ((Math.random() - 0.5f) * cellSizePx * 0.35f).toFloat(),
+                        y = startY,
+                        vx = ((Math.random() - 0.5f) * 40f).toFloat(),
+                        vy = speed,
+                        color = if (i % 2 == 0) primaryColor else secondaryColor,
+                        size = (3.5f + Math.random() * 3f).toFloat(),
+                        maxLife = 0.55f,
+                        type = ParticleType.LIGHT_STREAK,
+                        length = (45f + Math.random() * 65f).toFloat()
+                    )
+                )
+            }
+
+            // Cell explosions with expanding neon rings and sparkle stars
+            for (r in 0 until 8) {
+                val cx = centerX
+                val cy = boardScreenBounds.top + (r + 0.5f) * cellSizePx
+
+                // Neon Shockwave Ring
+                newParticles.add(
+                    Particle(
+                        x = cx,
+                        y = cy,
+                        vx = 0f,
+                        vy = 0f,
+                        color = palette[r % palette.size],
+                        size = cellSizePx * 0.45f,
+                        maxLife = 0.45f,
+                        type = ParticleType.NEON_RING
+                    )
+                )
+
+                // Spinning Diamond Star Sparkle
+                newParticles.add(
+                    Particle(
+                        x = cx,
+                        y = cy,
+                        vx = ((Math.random() - 0.5f) * 180f - 50f).toFloat(),
+                        vy = ((Math.random() - 0.5f) * 160f).toFloat(),
+                        color = accentGold,
+                        size = (6f + Math.random() * 6f).toFloat(),
+                        maxLife = (0.5f + Math.random() * 0.3f).toFloat(),
+                        type = ParticleType.STAR_SPARKLE,
+                        rotation = (Math.random() * 360f).toFloat(),
+                        vRot = ((Math.random() - 0.5f) * 400f).toFloat()
+                    )
+                )
+
+                // Outward neon sparks (left & right horizontal burst)
+                for (s in 0 until 4) {
+                    val angle = if (s % 2 == 0) (0.0 + (Math.random() - 0.5)) else (Math.PI + (Math.random() - 0.5))
+                    val speed = (120f + Math.random() * 260f).toFloat()
+                    newParticles.add(
+                        Particle(
+                            x = cx,
+                            y = cy,
+                            vx = (cos(angle) * speed).toFloat(),
+                            vy = (sin(angle) * speed).toFloat(),
+                            color = palette.random(),
+                            size = (4.5f + Math.random() * 5.5f).toFloat(),
+                            maxLife = (0.4f + Math.random() * 0.35f).toFloat(),
+                            type = ParticleType.NEON_CIRCLE
+                        )
+                    )
+                }
+            }
+        }
+
+        _particles.value = (_particles.value + newParticles).takeLast(180)
     }
 
     private fun startParticlesLoop() {
@@ -1037,7 +1227,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                         if (p.life > 0) {
                             p.x += p.vx * dt
                             p.y += p.vy * dt
-                            p.vy += 450f * dt // gentle gravity
+                            p.vy += 380f * dt // gentle gravity
+                            p.rotation += p.vRot * dt
                             p.alpha = (p.life / p.maxLife).coerceIn(0f, 1f)
                             updated.add(p)
                         }

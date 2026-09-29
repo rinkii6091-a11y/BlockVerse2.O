@@ -26,6 +26,21 @@ enum class MomentumLevel(val label: String, val multiplier: Float, val colorHex:
     OVERDRIVE("OVERDRIVE 3X!", 3.0f, 0xFFFF2E93)
 }
 
+/**
+ * State container for the Game Score Header UI component.
+ * Managed and emitted reactively by GameViewModel.
+ */
+data class ScoreHeaderState(
+    val currentScore: Int = 0,
+    val bestScore: Int = 0,
+    val isNewRecord: Boolean = false,
+    val combo: Int = 0,
+    val multiplier: Float = 1.0f,
+    val momentum: MomentumLevel = MomentumLevel.CALM,
+    val gameMode: GameMode = GameMode.CLASSIC,
+    val adventureLevel: Int = 1
+)
+
 data class FloatingScore(
     val id: String = java.util.UUID.randomUUID().toString(),
     val text: String,
@@ -34,6 +49,13 @@ data class FloatingScore(
     val color: Color = Color(0xFFFFE066),
     val creationTime: Long = System.currentTimeMillis()
 )
+
+enum class ParticleType {
+    NEON_CIRCLE,
+    STAR_SPARKLE,
+    NEON_RING,
+    LIGHT_STREAK
+}
 
 data class Particle(
     val id: String = java.util.UUID.randomUUID().toString(),
@@ -45,7 +67,11 @@ data class Particle(
     val size: Float,
     var alpha: Float = 1.0f,
     val maxLife: Float = 1.0f,
-    var life: Float = 1.0f
+    var life: Float = 1.0f,
+    val type: ParticleType = ParticleType.NEON_CIRCLE,
+    var rotation: Float = 0f,
+    var vRot: Float = 0f,
+    val length: Float = 0f
 )
 
 data class AdventureLevel(
