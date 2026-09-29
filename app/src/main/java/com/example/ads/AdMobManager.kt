@@ -71,7 +71,13 @@ import kotlinx.coroutines.flow.asStateFlow
  */
 object AdMobManager {
 
-    // Official Google AdMob Test Ad Unit IDs
+    // Google AdMob Real Production Credentials
+    const val ADMOB_APP_ID = "ca-app-pub-7825718472249167~1870951955"
+    const val BANNER_AD_UNIT_ID = "ca-app-pub-7825718472249167/5555046098"
+    const val INTERSTITIAL_AD_UNIT_ID = "ca-app-pub-7825718472249167/9302719410"
+    const val REWARDED_AD_UNIT_ID = "ca-app-pub-7825718472249167/9630022470"
+
+    // Official Google AdMob Test Ad Unit IDs (Kept for fallback/testing)
     const val TEST_BANNER_ID = "ca-app-pub-3940256099942544/6300978111"
     const val TEST_INTERSTITIAL_ID = "ca-app-pub-3940256099942544/1033173712"
     const val TEST_REWARDED_ID = "ca-app-pub-3940256099942544/5224354917"
@@ -485,7 +491,7 @@ private fun InterstitialAdView(
 @Composable
 fun AdMobBanner(
     modifier: Modifier = Modifier,
-    adUnitId: String = AdMobManager.TEST_BANNER_ID
+    adUnitId: String = AdMobManager.BANNER_AD_UNIT_ID
 ) {
     Box(
         modifier = modifier
